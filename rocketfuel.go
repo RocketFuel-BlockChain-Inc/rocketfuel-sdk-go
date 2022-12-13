@@ -16,9 +16,10 @@ import (
 )
 
 const (
-	version            = "0.0.1"
+	version            = "0.0.2"
 	defaultHTTPTimeout = 60 * time.Second
-	baseURL            = "https://api.rocketfuelblockchain.com/api"
+	prodURL            = "https://api.rocketfuelblockchain.com/api"
+	sandboxURL         = "https://app-sandbox.rocketfuelblockchain.com/api"
 	userAgent          = "rocketfuel-go" + version
 )
 
@@ -40,11 +41,11 @@ type Client struct {
 	Update         *UpdateService
 }
 type Options struct {
-	Environment string `json:"environment,omitempty"`
-	PublicKey   string `json:"publicKey,omitempty"`
-	Email       string `json:"email,omitempty"`
-	MerchantId  string `json:"merchantId,omitempty"`
-	Password    string `json:"password,omitempty"`
+	Environment  string `json:"environment,omitempty"`
+	PublicKey    string `json:"publicKey,omitempty"`
+	MerchantId   string `json:"merchantId,omitempty"`
+	ClientId     string `json:"clientId,omitempty"`
+	ClientSecret string `json:"clientSecret,omitempty"`
 }
 
 type Logger interface {
@@ -62,21 +63,17 @@ func (v RequestValues) MarshalJSON() ([]byte, error) {
 	return json.Marshal(m)
 }
 func GetBaseUrl(env string) string {
-	prodUrl := "https://app.rocketfuelblockchain.com/api"
 
-	if env == "" {
-		return prodUrl
+	if env != "sandbox" {
+		return prodURL
 	}
 
-	environment_data := map[string]string{
-		"prod":    prodUrl,
-		"dev":     "https://dev-app.rocketdemo.net/api",
-		"qa":      "https://qa-app.rocketdemo.net/api",
-		"preprod": "https://preprod-app.rocketdemo.net/api",
-		"sandbox": "https://app-sandbox.rocketfuelblockchain.com/api",
-	}
+	// environment_data := map[string]string{
+	// 	"prod":    baseURL,
+	// 	"sandbox": "https://app-sandbox.rocketfuelblockchain.com/api",
+	// }
 
-	return environment_data[env]
+	return sandboxURL
 }
 
 // NewClient creates a new Rocketfuel API client with the given API key
@@ -159,27 +156,26 @@ func (c *Client) Call(method, path string, body string, v interface{}) error {
 	return c.decodeResponse(resp, v)
 }
 
-func GetOptions(environment string, publicKey string, email string, merchantId string, password string) *Options {
+func GetOptions(environment string, publicKey string, clientId string, merchantId string, clientSecret string) *Options {
 
 	options := &Options{
-		Environment: environment,
-		PublicKey:   publicKey,
-		Email:       email,
-		MerchantId:  merchantId,
-		Password:    password,
+		Environment:  environment,
+		PublicKey:    publicKey,
+		ClientId:     clientId,
+		MerchantId:   merchantId,
+		ClientSecret: clientSecret,
 	}
 
 	return options
 }
 func (c *Client) getMerchantCred() string {
 
-	mapD := map[string]string{"email": c.options.Email, "password": c.options.Password}
-	mapB, _ := json.Marshal(mapD)
+	toEncrypt := marshalize(map[string]string{
+		"merchantId": c.options.MerchantId, "totp": ""})
 
-	// cred := &AuthorizationRequest{
-	// 	Email:    c.options.email,
-	// 	Password: c.options.password,
-	// }
+	mapB := marshalize(map[string]string{"clientId": c.options.ClientId, "encryptedPayload": encrypt(string(toEncrypt),
+		c.options.ClientSecret)})
+
 	return string(mapB)
 }
 
@@ -233,13 +229,14 @@ func mapstruct(data interface{}, v interface{}) error {
 }
 func (c *Client) GetUUID(body HostedPageRequest) (Response, error) {
 	result, _ := c.Authorization.Login()
-
+	body.Merchant_id = c.options.MerchantId //update body with merchant Id
 	if str, ok := result["access"].(string); ok {
 		c.Key = str
 	} else {
-		fmt.Println("not a strinfg")
-
+		fmt.Println("not a string", result)
+		panic("Authorization could not be completed")
 	}
+	fmt.Println(body, "body")
 	return c.HostedPage.Create(body)
 }
 func newAPIError(httpResp *http.Response) error {
